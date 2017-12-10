@@ -33,7 +33,7 @@ for path in IMG_PATHS:
 
 def rate_photos(event):
     sys.stdout.flush()
-    rating_set = [str(i) for i in list(range(1,11))]
+    rating_set = [str(i) for i in list(range(1,10))]
     rating_set.append('escape')
     if event.key in rating_set:
         RATINGS.append(event.key)
