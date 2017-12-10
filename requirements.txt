@@ -1,0 +1,6 @@
+keras
+matplotlib
+pandas
+pynder
+pynput
+robobrowser
