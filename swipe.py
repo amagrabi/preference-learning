@@ -1,8 +1,10 @@
 
+import datetime
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
 import os
 import shutil
+import sys
 import time
 import pandas as pd
 import pynder
@@ -13,8 +15,11 @@ from pylab import rcParams
 
 from config import FACEBOOK_AUTH_TOKEN, FACEBOOK_ID, RATING_THRESHOLD
 
-DF_PATH = 'data/df_swipes.p'
+# Iterable needed to store ratings from keypresses
+RATINGS = []
 
+# Directory structure
+DF_PATH = 'data/df_swipes.p'
 IMG_PATH_LIKES = 'data/images/likes'
 IMG_PATH_DISLIKES = 'data/images/dislikes'
 IMG_PATH_NEARBY = 'data/images/nearby'
@@ -26,34 +31,18 @@ for path in IMG_PATHS:
         os.makedirs(path)
 
 
-class ExceptionUserLiked(Exception):
-    pass
+def rate_photos(event):
+    sys.stdout.flush()
+    rating_set = [str(i) for i in list(range(1,11))]
+    rating_set.append('escape')
+    if event.key in rating_set:
+        RATINGS.append(event.key)
+        plt.close(fig)
 
 
-class ExceptionUserDisliked(Exception):
-    pass
-
-
-class ExceptionStop(Exception):
-    pass
-
-
-def on_release(key):
-    if key == keyboard.Key.cmd_l:
-        raise ExceptionUserDisliked(key)
-    if key == keyboard.Key.cmd_r:
-        raise ExceptionUserLiked(key)
-    if key == keyboard.Key.shift:
-        raise ExceptionStop(key)
-    else:
-        print(f'Pressed undefined key: {key}')
-
-
-def show_images(filenames, user=None, session=None, pause=3.0,
-                figure_width=10, figure_height=5, figure_pos_x=500, figure_pos_y=0):
+def show_images(filenames, fig, user=None, session=None, pause=0.0,
+                figure_pos_x=500, figure_pos_y=0):
     # plt.style.use('dark_background')
-    rcParams['figure.figsize'] = figure_width, figure_height
-    fig = plt.figure()
     thismanager = plt.get_current_fig_manager()
     thismanager.window.wm_geometry(f'+{figure_pos_x}+{figure_pos_y}')
     for j, photo in enumerate(filenames):
@@ -64,23 +53,25 @@ def show_images(filenames, user=None, session=None, pause=3.0,
         plt.imshow(img)
     title = ''
     if user:
-        title += f' Name: {user.name},   '
-        title += f' Age: {user.age} \n'
-        title += f' Bio: {user.bio} \n'
+        title += f'Name: {user.name}, \n'
+        title += f'Age: {user.age} \n'
+        title += f'Distance: {user.distance_km} \n'
+        fig.text(0.01, 0.1, f'Bio: {user.bio}', bbox={'facecolor': 'white', 'alpha': 1, 'edgecolor': 'none', 'pad': 1})
     if session:
         title += f' Likes remaining: {session.likes_remaining}'
     plt.suptitle(title)
-    plt.draw()
-    # Not sure why this pause is necessary/why the figure doesn't close directly after the pause
-    plt.pause(pause)
-    plt.close(fig)
+    fig.canvas.mpl_connect('key_release_event', rate_photos)
+    plt.show()
+    if pause:
+        time.sleep(pause)
 
 
-def add_data_to_df(df, path, user, liked):
+def add_data_to_df(df, path, user, liked, rating):
     new_data = pd.DataFrame({
         'name': user.name,
         'id': user.id,
         'liked': liked,
+        'rating': rating,
         'age': user.age,
         'bio': user.bio,
         'photos': [list(user.get_photos())],
@@ -101,7 +92,8 @@ def add_data_to_df(df, path, user, liked):
         'gender': user.gender,
         'birth_date': user.birth_date,
         'instagram_name': user.instagram_username,
-        'content_hash': user._data.get('content_hash', None)
+        'content_hash': user._data.get('content_hash', None),
+        'datetime': datetime.datetime.isoformat(datetime.datetime.now())
     })
     df = df.append(new_data, ignore_index=True)
     df.to_pickle(path)
@@ -110,7 +102,7 @@ def add_data_to_df(df, path, user, liked):
 
 if __name__ == "__main__":
 
-    reset = True
+    reset = False
     if reset:
         if os.path.exists(IMG_PATH_LIKES):
             shutil.rmtree(IMG_PATH_LIKES)
@@ -160,38 +152,40 @@ if __name__ == "__main__":
                 photo_filenames.append(photo_filename)
 
             # Show images
-            show_images(photo_filenames, user=user, session=session, pause=0.1)
+            rcParams['figure.figsize'] = 10, 5
+            fig = plt.figure()
+            show_images(photo_filenames, fig, user=user, session=session, pause=0.0)
 
-            # Wait for response
-            with keyboard.Listener(on_release=on_release) as listener:
-
-                try:
-                    listener.join()
-
-                except ExceptionUserDisliked as e:
-                    liked = False
-                    df = add_data_to_df(df=df, path=DF_PATH, user=user, liked=liked)
-                    for photo in photo_filenames:
-                        shutil.copyfile(photo, os.path.join(IMG_PATH_DISLIKES, os.path.basename(photo)))
-                    # user.dislike()
-                    resp = session._api.dislike(user.id)
-                    print(f'{user.name} was disliked')
-
-                except ExceptionUserLiked as e:
-                    liked = True
-                    df = add_data_to_df(df=df, path=DF_PATH, user=user, liked=liked)
-                    for photo in photo_filenames:
-                        shutil.copyfile(photo, os.path.join(IMG_PATH_LIKES, os.path.basename(photo)))
-                    # user.like()
-                    resp = session._api.like(user.id)
-                    print(f'{user.name} was LIKED: {resp}')
-
-                except ExceptionStop as e:
-                    print('Aborting')
-                    abort = True
-                    break
+            # Process rating
+            rating = RATINGS.pop()
+            if rating == 'escape':
+                abort = True
+                break
+            elif int(rating) < RATING_THRESHOLD:
+                liked = False
+                df = add_data_to_df(df=df, path=DF_PATH, user=user, liked=liked, rating=int(rating))
+                for photo in photo_filenames:
+                    filepath, file_extension = os.path.splitext(photo)
+                    new_filename = os.path.basename(filepath) + f'_{str(rating).zfill(2)}' + file_extension
+                    new_filepath = os.path.join(IMG_PATH_DISLIKES, new_filename)
+                    shutil.copyfile(photo, new_filepath)
+                # user.dislike()
+                resp = session._api.dislike(user.id)
+                print(f'{user.name} was disliked ({int(rating)})')
+            else:
+                liked = True
+                df = add_data_to_df(df=df, path=DF_PATH, user=user, liked=liked, rating=int(rating))
+                for photo in photo_filenames:
+                    filepath, file_extension = os.path.splitext(photo)
+                    new_filename = os.path.basename(filepath) + f'_{str(rating).zfill(2)}' + file_extension
+                    new_filepath = os.path.join(IMG_PATH_LIKES, new_filename)
+                    shutil.copyfile(photo, new_filepath)
+                # user.like()
+                resp = session._api.like(user.id)
+                print(f'{user.name} was LIKED ({int(rating)})')
+                print(f'{resp}')
 
         if abort:
             break
 
-        time.sleep(1)
+        time.sleep(0)

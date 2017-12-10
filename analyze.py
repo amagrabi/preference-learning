@@ -52,6 +52,7 @@ for user_instagram_photos in instagram_photos:
 instagram_photos = instagram_photos_new
 
 # Create DataFrame from matches
+# TODO: update fields from swipe.py
 df = pd.DataFrame({
     'name': names,
     'id': ids,
@@ -95,28 +96,3 @@ for i, row in df.iterrows():
                                    os.path.join(IMG_PATH_INST, f'match_{str(i).zfill(4)}_{str(j).zfill(4)}.jpg'))
         if j > 30:
             break
-
-
-# Get nearby users
-# TODO: make script to display images and swipe with keyboard
-IMG_PATH_NEARBY = 'data/images/nearby_users'
-if not os.path.exists(IMG_PATH):
-    os.makedirs(IMG_PATH)
-
-nearby = []
-batch_nr = 2
-for i, user in enumerate(session.nearby_users()):
-    print(f'Current user: {i}')
-    nearby.append(user)
-    photo_filenames = []
-    for j, photo in enumerate(user.get_photos()):
-        photo_filename = os.path.join(IMG_PATH_NEARBY, f'nearby_'
-                                                       f'batch{str(batch_nr).zfill(4)}_'
-                                                       f'user{str(i+20).zfill(4)}_'
-                                                       f'photo{str(j).zfill(4)}.jpg')
-        urllib.request.urlretrieve(photo, photo_filename)
-        photo_filenames.append(photo_filename)
-
-    if i > 100:
-        break
-
